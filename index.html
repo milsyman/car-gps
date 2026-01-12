@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Car‑Style GPS Navigation (PWA)</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json" />
+
+  <style>
+    html, body { height:100%; margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#000; }
+    #map { height:100%; width:100%; }
+
+    .hud { position: fixed; inset: 0; pointer-events:none; z-index:1000; display:flex; flex-direction:column; justify-content:space-between; }
+
+    .top-hud {
+      display:flex; gap:12px; align-items:center;
+      padding:14px; margin:10px; border-radius:18px;
+      background: rgba(0,0,0,.75); color:#fff; pointer-events:auto;
+    }
+
+    .maneuver { flex:1; font-size:18px; font-weight:700; }
+    .lane-box { display:flex; gap:6px; }
+
+    .lane { width:26px; height:26px; border-radius:6px; background:#333; display:flex; align-items:center; justify-content:center; opacity:.4; }
+    .lane.active { background:#1a73e8; opacity:1; }
+
+    .speed-box { min-width:84px; text-align:center; border-radius:14px; background:#111; padding:10px; border:2px solid #444; }
+    .speed { font-size:26px; font-weight:900; }
+    .limit { margin-top:6px; background:#fff; color:#000; border-radius:10px; padding:4px 6px; font-weight:800; }
+
+    .bottom-hud {
+      margin:10px; padding:12px; border-radius:22px;
+      background: rgba(0,0,0,.75); color:#fff; pointer-events:auto;
+      display:flex; gap:10px;
+    }
+
+    .search { flex:1; background:#111; border:1px solid #333; color:#fff; padding:12px 14px; border-radius:14px; font-size:16px; }
+    .btn { background:#1a73e8; color:#fff; border:none; border-radius:16px; padding:12px 16px; font-size:16px; font-weight:700; }
+    .btn.secondary { background:#444; }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="hud">
+  <div class="top-hud">
+    <div class="maneuver" id="maneuver">Waiting for route…</div>
+    <div class="lane-box" id="lanes"></div>
+    <div class="speed-box">
+      <div class="speed" id="speed">0</div>
+      <div class="limit" id="limit">—</div>
+    </div>
+  </div>
+
+  <div class="bottom-hud">
+    <input class="search" id="search" placeholder="Where to?" />
+    <button class="btn" onclick="searchAddress()">Go</button>
+    <button class="btn secondary" onclick="toggleMap()">🛰️</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const map = L.map('map', { zoomControl:false }).setView([39.8283,-98.5795],4);
+  const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+  const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19});
+  let satellite=false;
+  function toggleMap(){ satellite=!satellite; satellite?(map.addLayer(sat),map.removeLayer(street)):(map.addLayer(street),map.removeLayer(sat)); }
+
+  let userMarker, routeLine, steps=[], stepIndex=0;
+  const icon=L.divIcon({html:'<div style="width:14px;height:14px;background:#1a73e8;border:3px solid #fff;border-radius:50%"></div>',iconSize:[20,20],iconAnchor:[10,10]});
+
+  navigator.geolocation.watchPosition(p=>{
+    const latlng=[p.coords.latitude,p.coords.longitude];
+    if(!userMarker){ userMarker=L.marker(latlng,{icon}).addTo(map); map.setView(latlng,17); }
+    else { userMarker.setLatLng(latlng); map.panTo(latlng); }
+
+    document.getElementById('speed').textContent = p.coords.speed ? Math.round(p.coords.speed*2.23694) : 0;
+
+    if(steps.length){
+      const s=steps[stepIndex];
+      document.getElementById('maneuver').textContent=s.maneuver.instruction;
+      renderLanes(s.lanes||[]);
+      const d=map.distance(userMarker.getLatLng(),L.latLng(s.maneuver.location[1],s.maneuver.location[0]));
+      if(d<25 && stepIndex<steps.length-1) stepIndex++;
+    }
+  },e=>alert(e.message),{enableHighAccuracy:true});
+
+  async function searchAddress(){
+    const q=search.value.trim(); if(!q||!userMarker) return;
+    const g=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`).then(r=>r.json());
+    if(!g[0]) return alert('Not found');
+    buildRoute([+g[0].lat,+g[0].lon]);
+  }
+
+  async function buildRoute(dest){
+    const s=userMarker.getLatLng();
+    const r=await fetch(`https://router.project-osrm.org/route/v1/driving/${s.lng},${s.lat};${dest[1]},${dest[0]}?overview=full&geometries=geojson&steps=true`).then(r=>r.json());
+    if(routeLine) map.removeLayer(routeLine);
+    routeLine=L.geoJSON(r.routes[0].geometry,{style:{weight:8}}).addTo(map);
+    steps=r.routes[0].legs[0].steps; stepIndex=0;
+    document.getElementById('limit').textContent=/I-|US-|Hwy|Highway/i.test(steps[0].name||'')?'65':'45';
+  }
+
+  function renderLanes(l){ lanes.innerHTML=''; l.forEach(x=>{ const d=document.createElement('div'); d.className='lane'+(x.valid?' active':''); d.textContent=x.indications?.[0]?.[0]||'↑'; lanes.appendChild(d); }); }
+
+  if('serviceWorker'in navigator){ navigator.serviceWorker.register('service-worker.js'); }
+</script>
+</body>
+</html>
