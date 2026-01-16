@@ -1,6 +1,6 @@
 {
-  "name": "Waze Style GPS",
-  "short_name": "WazeGPS",
+  "name": "Fun Waze GPS",
+  "short_name": "FunGPS",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#eaf6ff",
