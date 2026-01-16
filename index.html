@@ -2,126 +2,141 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <title>Fun Waze-Style GPS</title>
 
 <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
 <style>
-html,body{margin:0;height:100%;background:#eaf6ff;font-family:system-ui}
-#map{height:100%}
-
-/* HUD */
-.hud{position:fixed;inset:0;pointer-events:none;z-index:999}
-
-.banner{
-  margin:10px auto 0;
-  max-width:92%;
-  background:#fff;
-  border-radius:22px;
-  padding:16px 20px;
-  box-shadow:0 12px 30px rgba(0,0,0,.15);
-  display:flex;
-  justify-content:space-between;
-  pointer-events:auto
+:root{
+  --blue:#1da1ff;
+  --bg:#eaf6ff;
+  --card:#ffffff;
+  --shadow:0 14px 40px rgba(0,0,0,.25);
 }
 
-.maneuver{font-size:20px;font-weight:900}
-.meta{font-size:13px;opacity:.7}
+html,body{
+  margin:0;
+  height:100%;
+  background:var(--bg);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui;
+  touch-action:manipulation;
+}
 
-.speedBubble{
+#map{height:100%;}
+
+/* TOP SEARCH */
+.searchBar{
+  position:fixed;
+  top:env(safe-area-inset-top,10px);
+  left:50%;
+  transform:translateX(-50%);
+  width:92%;
+  background:var(--card);
+  border-radius:22px;
+  padding:12px 14px;
+  display:flex;
+  gap:8px;
+  box-shadow:var(--shadow);
+  z-index:1000;
+}
+
+.searchBar input{
+  flex:1;
+  border:none;
+  font-size:16px;
+  outline:none;
+}
+
+.searchBar button{
+  background:var(--blue);
+  color:#fff;
+  border:none;
+  padding:10px 14px;
+  border-radius:18px;
+  font-weight:800;
+}
+
+/* SPEED */
+.speed{
   position:fixed;
   right:14px;
   top:120px;
-  background:#1da1ff;
+  background:var(--blue);
   color:#fff;
-  width:72px;
-  height:72px;
+  width:70px;
+  height:70px;
   border-radius:50%;
   display:flex;
   flex-direction:column;
-  justify-content:center;
   align-items:center;
+  justify-content:center;
   font-weight:900;
-  box-shadow:0 10px 25px rgba(0,0,0,.3);
-  pointer-events:auto
+  box-shadow:var(--shadow);
+  z-index:1000;
 }
 
-.controls{
+/* TURN CARD */
+.turnCard{
   position:fixed;
-  bottom:16px;
+  top:90px;
   left:50%;
   transform:translateX(-50%);
-  display:flex;
-  gap:8px;
-  background:#fff;
-  padding:10px;
-  border-radius:26px;
-  box-shadow:0 12px 30px rgba(0,0,0,.2);
-  pointer-events:auto
+  background:var(--card);
+  width:92%;
+  border-radius:24px;
+  padding:14px 18px;
+  box-shadow:var(--shadow);
+  z-index:999;
 }
 
-button{border:none;background:#1da1ff;color:#fff;padding:10px 14px;border-radius:20px;font-weight:800}
-button.alt{background:#eee;color:#111}
+.turnMain{font-size:18px;font-weight:900}
+.turnSub{font-size:13px;opacity:.6}
 
-.panel{
+/* BOTTOM BAR */
+.bottomBar{
   position:fixed;
-  left:10px;
-  bottom:100px;
-  background:#fff;
-  border-radius:18px;
+  bottom:env(safe-area-inset-bottom,12px);
+  left:50%;
+  transform:translateX(-50%);
+  background:var(--card);
+  width:94%;
+  border-radius:30px;
   padding:12px;
-  box-shadow:0 10px 25px rgba(0,0,0,.2);
-  pointer-events:auto;
-  font-size:13px
+  display:flex;
+  justify-content:space-around;
+  box-shadow:var(--shadow);
+  z-index:1000;
 }
 
-.theme-dark{background:#0b1220;color:#fff}
+.bottomBar button{
+  background:none;
+  border:none;
+  font-size:20px;
+}
+
+/* DARK MODE */
+.dark{
+  --bg:#0b1220;
+  --card:#111827;
+  color:#fff;
+}
 </style>
 </head>
 
 <body>
 <div id="map"></div>
 
-<div class="hud">
-  <div class="banner">
-    <div>
-      <div id="maneuver" class="maneuver">Pick a destination 🎯</div>
-      <div id="meta" class="meta"></div>
-    </div>
-    <div id="eta" class="meta"></div>
-  </div>
-
-  <div class="speedBubble">
-    <div id="speed">0</div>
-    <span>mph</span>
-  </div>
-
-  <div class="controls">
-    <input id="search" placeholder="Search" style="border:none;font-size:16px">
-    <button onclick="voiceSearch()">🎤</button>
-    <button onclick="searchAddress()">Go</button>
-    <button class="alt" onclick="toggleMap()">🛰️</button>
-    <button class="alt" onclick="toggleTheme()">🎨</button>
-  </div>
-
-  <div class="panel">
-    <b>Driver XP</b>
-    XP: <span id="xp">0</span><br>
-    Trips: <span id="trips">0</span><br>
-    Miles: <span id="miles">0</span>
-  </div>
+<div class="searchBar">
+  <input id="search" placeholder="Where to?" />
+  <button onclick="voiceSearch()">🎤</button>
+  <button onclick="searchAddress()">Go</button>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-/* MAP */
-const map=L.map('map',{zoomControl:false}).setView([39.8,-98.6],4);
-const street=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
-const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
-let satellite=false;
-function toggleMap(){satellite?(map.removeLayer(sat),street.addTo(map)):(map.removeLayer(street),sat.addTo(map));satellite=!satellite}
+<div class="turnCard">
+  <div id="maneuver" class="turnMain">Ready to drive 🚗</div>
+  <div id="meta" class="turnSub"></div>
+</div>
 
-/* STATS */
-let stats=JSON.parse(localStorage.getItem('
+<div cla
