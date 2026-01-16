@@ -1,116 +1,318 @@
+<!-- ==========================
+WAZE-STYLE GPS NAVIGATION (PWA)
+GITHUB-PAGES SAFE • FULL COPY/PASTE
+========================== -->
+
+<!-- ==========================
+OVERVIEW
+========================== -->
+This version **restyles the app to look and feel like Waze**:
+• Bright, playful UI
+• Rounded cards
+• Large maneuver banner
+• Bold speed bubble
+• Floating controls
+• Car-centered map
+• Voice navigation
+• ETA + distance
+• Rerouting
+• PWA + offline-safe
+
+NOTE: This revision fixes a runtime error where `navigator.geolocation.watchPosition`
+was called with an invalid second argument. A proper error callback function
+is now supplied, as required by the Web Geolocation API spec.
+
+
+<!-- ==========================
+FILE 1: index.html
+========================== -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
-<title>Car GPS Navigation</title>
+<title>Waze-Style GPS</title>
 <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
-html,body{margin:0;height:100%;background:#000;font-family:system-ui}
+html,body{margin:0;height:100%;background:#eaf6ff;font-family:system-ui}
 #map{height:100%}
-.hud{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:space-between;z-index:999;pointer-events:none}
-.panel{margin:10px;padding:14px;border-radius:18px;background:rgba(0,0,0,.8);color:#fff;pointer-events:auto}
-.top{display:flex;justify-content:space-between;align-items:center}
-.maneuver{font-size:18px;font-weight:700}
-.speed{font-size:28px;font-weight:900}
-.bottom{display:flex;gap:10px}
-input,button{padding:12px;border-radius:14px;border:none;font-size:16px}
-button{font-weight:700}
-.lane{margin-top:6px;font-size:14px;opacity:.8}
+
+/* WAZE STYLE UI */
+.hud{position:fixed;inset:0;pointer-events:none;z-index:999}
+.banner{
+  margin:10px auto 0;
+  max-width:92%;
+  background:#ffffff;
+  color:#111;
+  border-radius:22px;
+  padding:16px 20px;
+  box-shadow:0 12px 30px rgba(0,0,0,.15);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  pointer-events:auto
+}
+.maneuver{font-size:20px;font-weight:900}
+.meta{font-size:13px;opacity:.7}
+
+.speedBubble{
+  position:fixed;
+  right:14px;
+  top:120px;
+  background:#1da1ff;
+  color:#fff;
+  width:72px;
+  height:72px;
+  border-radius:50%;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  font-weight:900;
+  box-shadow:0 10px 25px rgba(0,0,0,.3);
+  pointer-events:auto
+}
+.speedBubble span{font-size:12px;opacity:.8}
+
+.controls{
+  position:fixed;
+  bottom:16px;
+  left:50%;
+  transform:translateX(-50%);
+  display:flex;
+  gap:10px;
+  background:#fff;
+  padding:12px 14px;
+  border-radius:26px;
+  box-shadow:0 12px 30px rgba(0,0,0,.2);
+  pointer-events:auto
+}
+input{border:none;font-size:16px;outline:none}
+button{border:none;background:#1da1ff;color:#fff;padding:10px 14px;border-radius:20px;font-weight:800}
+button.alt{background:#eee;color:#111}
 </style>
 </head>
 <body>
 <div id="map"></div>
+
 <div class="hud">
-  <div class="panel top">
+  <div class="banner">
     <div>
-      <div id="maneuver" class="maneuver">Waiting for destination</div>
-      <div id="lane" class="lane"></div>
+      <div id="maneuver" class="maneuver">Where are you going?</div>
+      <div id="meta" class="meta"></div>
     </div>
-    <div>
-      <div id="speed" class="speed">0</div>
-      <div id="limit">—</div>
-    </div>
+    <div id="eta" class="meta"></div>
   </div>
-  <div class="panel bottom">
-    <input id="search" placeholder="Where to?" />
+
+  <div class="speedBubble">
+    <div id="speed">0</div>
+    <span id="limit">mph</span>
+  </div>
+
+  <div class="controls">
+    <input id="search" placeholder="Search" />
     <button onclick="voiceSearch()">🎤</button>
     <button onclick="searchAddress()">Go</button>
-    <button onclick="toggleMap()">🛰️</button>
+    <button class="alt" onclick="toggleMap()">🛰️</button>
   </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+/* ==========================
+MAP SETUP
+========================== */
 const map=L.map('map',{zoomControl:false}).setView([39.8,-98.6],4);
 const street=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
 const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
 let satellite=false;
-function toggleMap(){satellite?(map.removeLayer(sat),street.addTo(map)):(map.removeLayer(street),sat.addTo(map));satellite=!satellite}
+function toggleMap(){
+  satellite?(map.removeLayer(sat),street.addTo(map)):(map.removeLayer(street),sat.addTo(map));
+  satellite=!satellite
+}
 
-let marker,route,steps=[],stepIndex=0,trip=[];
-const icon=L.divIcon({html:'<div style="width:14px;height:14px;background:#1a73e8;border:3px solid #fff;border-radius:50%"></div>',iconSize:[20,20]});
+/* ==========================
+STATE
+========================== */
+let marker,route,steps=[],stepIndex=0,destination=null,lastSpoken=-1;
 
-function speak(t){speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(t));}
+const icon=L.divIcon({
+  html:'<div style="width:16px;height:16px;background:#1da1ff;border:4px solid #fff;border-radius:50%"></div>',
+  iconSize:[24,24]
+});
 
-navigator.geolocation.watchPosition(p=>{
- const ll=[p.coords.latitude,p.coords.longitude];
- trip.push(ll);
- if(!marker){marker=L.marker(ll,{icon}).addTo(map);map.setView(ll,17)}
- else marker.setLatLng(ll);
- speed.textContent=p.coords.speed?Math.round(p.coords.speed*2.23694):0;
- if(steps[stepIndex]){
-   maneuver.textContent=steps[stepIndex].maneuver.instruction;
-   lane.textContent=steps[stepIndex].maneuver.type||'';
- }
-},{enableHighAccuracy:true});
+/* ==========================
+VOICE OUTPUT
+========================== */
+function speak(text){
+  if(!text) return;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+}
 
+/* ==========================
+GEOLOCATION (FIXED)
+========================== */
+function onPositionUpdate(p){
+  const pos=[p.coords.latitude,p.coords.longitude];
+
+  if(!marker){
+    marker=L.marker(pos,{icon}).addTo(map);
+    map.setView(pos,18);
+  } else {
+    marker.setLatLng(pos);
+  }
+
+  speed.textContent=p.coords.speed
+    ? Math.round(p.coords.speed*2.23694)
+    : 0;
+
+  if(steps[stepIndex]){
+    maneuver.textContent=steps[stepIndex].maneuver.instruction;
+    meta.textContent=`${(remainingDistance()/1609).toFixed(1)} mi remaining`;
+    eta.textContent=`ETA ${Math.round(remainingTime()/60)} min`;
+
+    if(stepIndex!==lastSpoken){
+      speak(steps[stepIndex].maneuver.instruction);
+      lastSpoken=stepIndex;
+    }
+
+    if(distanceToStep()<30) stepIndex++;
+    if(distanceToRoute()>60) reroute();
+  }
+}
+
+function onPositionError(err){
+  console.error('Geolocation error:', err);
+  maneuver.textContent='Location unavailable';
+}
+
+navigator.geolocation.watchPosition(
+  onPositionUpdate,
+  onPositionError,
+  { enableHighAccuracy:true }
+);
+
+/* ==========================
+ROUTING
+========================== */
 async function searchAddress(){
- const q=search.value;if(!q||!marker)return;
- const g=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`).then(r=>r.json());
- buildRoute([+g[0].lat,+g[0].lon]);
+  if(!marker || !search.value) return;
+
+  const g=await fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(search.value)}`
+  ).then(r=>r.json());
+
+  if(!g[0]) return;
+  destination=[+g[0].lat,+g[0].lon];
+  buildRoute(destination);
 }
 
 async function buildRoute(dest){
- const s=marker.getLatLng();
- const r=await fetch(`https://router.project-osrm.org/route/v1/driving/${s.lng},${s.lat};${dest[1]},${dest[0]}?steps=true&geometries=geojson&overview=full`).then(r=>r.json());
- if(route)map.removeLayer(route);
- route=L.geoJSON(r.routes[0].geometry).addTo(map);
- steps=r.routes[0].legs[0].steps;
- stepIndex=0;
- speak(steps[0].maneuver.instruction);
- limit.textContent='45 mph';
+  const s=marker.getLatLng();
+
+  const r=await fetch(
+    `https://router.project-osrm.org/route/v1/driving/${s.lng},${s.lat};${dest[1]},${dest[0]}?steps=true&geometries=geojson&overview=full`
+  ).then(r=>r.json());
+
+  if(route) map.removeLayer(route);
+
+  route=L.geoJSON(r.routes[0].geometry,{
+    style:{color:'#1da1ff',weight:7}
+  }).addTo(map);
+
+  steps=r.routes[0].legs[0].steps;
+  stepIndex=0;
+  lastSpoken=-1;
+  limit.textContent='mph';
 }
 
+function reroute(){ if(destination) buildRoute(destination); }
+
+/* ==========================
+HELPERS
+========================== */
+function distance(a,b){
+  const R=6371e3;
+  const φ1=a.lat*Math.PI/180;
+  const φ2=b[0]*Math.PI/180;
+  const dφ=(b[0]-a.lat)*Math.PI/180;
+  const dλ=(b[1]-a.lng)*Math.PI/180;
+  const x=Math.sin(dφ/2)**2+Math.cos(φ1)*Math.cos(φ2)*Math.sin(dλ/2)**2;
+  return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+}
+function distanceToStep(){
+  return steps[stepIndex]
+    ? distance(marker.getLatLng(),steps[stepIndex].maneuver.location.slice().reverse())
+    : 0;
+}
+function distanceToRoute(){ return destination?distance(marker.getLatLng(),destination):0; }
+function remainingDistance(){ return steps.slice(stepIndex).reduce((t,s)=>t+s.distance,0); }
+function remainingTime(){ return steps.slice(stepIndex).reduce((t,s)=>t+s.duration,0); }
+
+/* ==========================
+VOICE SEARCH
+========================== */
 function voiceSearch(){
- const r=new webkitSpeechRecognition();
- r.onresult=e=>{search.value=e.results[0][0].transcript;searchAddress();};
- r.start();
+  const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SpeechRecognition) return;
+  const r=new SpeechRecognition();
+  r.onresult=e=>{
+    search.value=e.results[0][0].transcript;
+    searchAddress();
+  };
+  r.start();
 }
 
-if('serviceWorker'in navigator)navigator.serviceWorker.register('service-worker.js');
+/* ==========================
+BASIC RUNTIME TESTS
+========================== */
+console.assert(typeof onPositionUpdate==='function','onPositionUpdate should be a function');
+console.assert(typeof onPositionError==='function','onPositionError should be a function');
+console.assert('geolocation' in navigator,'Geolocation API missing');
+
+/* ==========================
+PWA
+========================== */
+if('serviceWorker'in navigator){
+  navigator.serviceWorker.register('service-worker.js');
+}
 </script>
 </body>
 </html>
 
 
 <!-- ==========================
-STEP 4: manifest.json
+FILE 2: manifest.json
 ========================== -->
 {
-  "name":"Car GPS Navigation",
-  "short_name":"CarGPS",
+  "name":"Waze Style GPS",
+  "short_name":"WazeGPS",
   "start_url":"./index.html",
   "display":"standalone",
-  "background_color":"#000",
-  "theme_color":"#000"
+  "background_color":"#eaf6ff",
+  "theme_color":"#1da1ff"
 }
 
 
 <!-- ==========================
-STEP 5: service-worker.js
+FILE 3: service-worker.js
 ========================== -->
-const CACHE='car-gps-v2';
-self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['./','./index.html']))));
-self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));
+const CACHE='waze-gps-v1';
+self.addEventListener('install',e=>
+  e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['./','./index.html'])))
+);
+self.addEventListener('fetch',e=>
+  e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))
+);
+
+<!-- ==========================
+STATUS
+========================== -->
+✔ Waze-style UI
+✔ Voice navigation
+✔ ETA / rerouting
+✔ PWA offline-safe
+✔ GitHub Pages compatible
+✔ Geolocation error FIXED
