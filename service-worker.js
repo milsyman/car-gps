@@ -1,4 +1,4 @@
-const CACHE='waze-gps-v1';
+const CACHE='fun-waze-gps-v1';
 
 self.addEventListener('install',e=>{
   e.waitUntil(
