@@ -1,8 +1,8 @@
 {
-  "name":"Car GPS Navigation",
-  "short_name":"CarGPS",
-  "start_url":"./index.html",
-  "display":"standalone",
-  "background_color":"#000",
-  "theme_color":"#000"
+  "name": "Waze Style GPS",
+  "short_name": "WazeGPS",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#eaf6ff",
+  "theme_color": "#1da1ff"
 }
